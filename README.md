@@ -41,7 +41,7 @@ table is indistinguishable from a complete one. The reader uses an EDN reader.
 
 ## Why the Python decides nothing
 
-`read_authority.cljs` holds every judgement about what an authority file
+`read_authority.cljk` holds every judgement about what an authority file
 means, beside the data and in the same language. `tools.py` turns arguments
 into an argv and an exit code into a protocol answer.
 

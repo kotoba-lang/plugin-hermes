@@ -25,7 +25,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-READER = os.path.join(HERE, "read_authority.cljs")
+READER = os.path.join(HERE, "read_authority.cljk")
 
 
 def run(command, workspace, argument=None):
