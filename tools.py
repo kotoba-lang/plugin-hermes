@@ -1,7 +1,7 @@
 """Tool handlers for the kotoba Hermes plugin.
 
 This file contains NO answers about kotoba-lang. It turns tool arguments into
-an argv, runs `read_authority.cljs` (or `amu`), and turns an exit code into a
+an argv, runs `read_authority.cljk` (or `amu`), and turns an exit code into a
 protocol answer. The reasoning about what an authority file means lives beside
 the data, in the same language, so there is exactly one reader
 (the doctrine of ADR-2608197300 §3, as applied by `dashboard_auth/did`).
@@ -29,7 +29,7 @@ from typing import Any, Dict, Optional
 from tools.registry import tool_error, tool_result
 
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
-READER = os.path.join(PLUGIN_DIR, "read_authority.cljs")
+READER = os.path.join(PLUGIN_DIR, "read_authority.cljk")
 
 TIMEOUT_S = 60
 

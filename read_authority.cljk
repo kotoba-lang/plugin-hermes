@@ -1,5 +1,5 @@
 #!/usr/bin/env nbb
-;; read_authority.cljs — the ONE reader for the kotoba-lang authority files.
+;; read_authority.cljk — the ONE reader for the kotoba-lang authority files.
 ;;
 ;; The Hermes plugin beside this file holds no answers: it turns tool arguments
 ;; into an argv and an exit code into a protocol answer. Everything about what
@@ -7,8 +7,8 @@
 ;; in, because an EDN reader written in Python would be a second reader — two
 ;; answers that agree until the day they do not, with no test that would notice.
 ;;
-;;   nbb read_authority.cljs surface-status <workspace> [name]
-;;   nbb read_authority.cljs capability-kits <workspace> [kit]
+;;   nbb read_authority.cljk surface-status <workspace> [name]
+;;   nbb read_authority.cljk capability-kits <workspace> [kit]
 ;;
 ;; Output is one JSON object on stdout.
 ;;

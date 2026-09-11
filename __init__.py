@@ -11,7 +11,7 @@ Three questions an agent answers wrong from memory, and one tool each:
 
 ## Why the plugin decides nothing
 
-The reasoning lives in `read_authority.cljs`, beside the data and in the same
+The reasoning lives in `read_authority.cljk`, beside the data and in the same
 language. An EDN reader written here in Python would be a second reader: two
 answers that agree until the day they do not, with no test that would notice.
 This is the shape `plugins/dashboard_auth/did` established in this workspace
