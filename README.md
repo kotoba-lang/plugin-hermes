@@ -15,7 +15,7 @@ export KOTOBA_WORKSPACE=~/github/com-junkawasaki
 |---|---|
 | `kotoba_surface_status` | Is this refusal **permanent**, or a backend that has not caught up? |
 | `kotoba_capability_kits` | Which backends have **qualified** this capability? |
-| `kotoba_check` | Did the compiler admit this guest? (and: admitted is not run) |
+| `kotoba_check` | Did the compiler admit this guest? (and: admitted is not run). Memoised by the file's Merkle closure hash — see below |
 
 ## Why these three
 
@@ -100,3 +100,29 @@ verifier, not to a tool the model can call.
 ## License
 
 MIT.
+
+## `kotoba_check` memo (2026-09-18)
+
+`amu check` is pure, so its verdict is memoised (ADR-2608160200: an Execution
+CID is a memo key exactly when the effect set is empty). The key is
+`symbol-index closure <file>` — the Merkle hash of every definition in the
+file with its dependencies' bodies folded in (names, local binding names,
+comments, docstrings and whitespace are not part of it) — plus the amu
+binary's identity. A comment edit is a hit; a body edit anywhere in the
+closure is a miss. Measured (probe_memo.py): miss 26.7 s, hit 0.39 s.
+
+- a served verdict always says so: `"memo": {"hit": true, "key": …}`;
+  `fresh: true` re-runs amu
+- when the closure cannot be computed (no index, no `symbol-index`), the check
+  runs and is **not** memoised: `"memo": {"hit": false, "not_keyed": "<why>"}`
+  — could-not-key never looks like keyed
+- store: `~/.kotoba-cache/kotoba-check-memo.json` (`KOTOBA_CHECK_MEMO` overrides);
+  `KOTOBA_SYMBOL_INDEX` points at a specific `symbol-index` (binary or `.cljk`)
+- `amu check` itself already emits a per-definition CID
+  (`kotoba.definition-identity/v1`, with `:dependencies`). The two are the
+  same idea computed twice (compiler-side after admission, index-side before
+  it and for every dialect); aligning them is open.
+
+```bash
+KOTOBA_SUPERPROJECT=~/github/com-junkawasaki python3 probe_memo.py   # 8 checks, both directions
+```

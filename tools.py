@@ -177,6 +177,10 @@ CHECK_SCHEMA = {
     "input_schema": {
         "type": "object",
         "properties": {
+            "fresh": {
+                "type": "boolean",
+                "description": "true bypasses the memo (same file closure + same amu -> served verdict) and re-runs amu check."
+            },
             "file": {
                 "type": "string",
                 "description": "Path to the .kotoba file, relative to KOTOBA_WORKSPACE or absolute.",
@@ -185,6 +189,135 @@ CHECK_SCHEMA = {
         "required": ["file"],
     },
 }
+
+
+# ── memo (iteration 20, 2026-09-18) ────────────────────────────────────────
+#
+# `amu check` is pure (no effect set): the same source closure gives the same
+# verdict. ADR-2608160200 allows a memo keyed by the Execution CID exactly when
+# the effect set is empty. The key here is symbol-index's FILE CLOSURE HASH
+# (every definition's Merkle hash, dependencies folded in — names, comments,
+# docstrings and whitespace excluded) plus the amu binary's identity. A comment
+# edit is a hit; a body edit anywhere in the closure is a miss.
+#
+# The memo is a convenience, never an authority: a verdict served from the memo
+# says so ("memo": {"hit": true, ...}) and can be bypassed with fresh=true. When
+# the closure cannot be computed (no index, no symbol-index) the check runs
+# and is NOT memoised — "could not key it" must not look like "keyed it".
+
+MEMO_PATH = os.path.expanduser(os.environ.get("KOTOBA_CHECK_MEMO") or "~/.kotoba-cache/kotoba-check-memo.json")
+
+
+def _symbol_index_argv(ws: str) -> Optional[list]:
+    forced = os.environ.get("KOTOBA_SYMBOL_INDEX")
+    if forced:
+        forced = os.path.expanduser(forced)
+        if forced.endswith(".cljk"):
+            kbb = shutil.which("kbb")
+            return [kbb, "--backend", "sci", forced] if kbb and os.path.exists(forced) else None
+        return [forced] if os.path.exists(forced) else None
+    on_path = shutil.which("symbol-index")
+    if on_path:
+        return [on_path]
+    script = os.path.join(ws, "orgs/kotoba-lang/symbol-index/scripts/symbol-index.cljk")
+    kbb = shutil.which("kbb")
+    if kbb and os.path.exists(script):
+        return [kbb, "--backend", "sci", script]
+    return None
+
+
+def _file_closure(ws: str, target: str) -> Dict[str, Any]:
+    """{"hash": ..} or {"why": ..} — never a silent None."""
+    argv = _symbol_index_argv(ws)
+    if not argv:
+        return {"why": "symbol-index not found (PATH or orgs/kotoba-lang/symbol-index)"}
+    rel = os.path.relpath(target, ws)
+    try:
+        proc = subprocess.run(argv + ["closure", rel], capture_output=True, text=True, timeout=120, cwd=ws)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return {"why": f"symbol-index closure failed to run: {exc}"}
+    if proc.returncode != 0:
+        first = (proc.stdout.strip().splitlines() or [proc.stderr.strip()[:200]])[0]
+        return {"why": f"symbol-index closure exit {proc.returncode}: {first[:200]}"}
+    for line in proc.stdout.splitlines():
+        if line.startswith("closure-file ") and "  #" in line:
+            return {"hash": line.rsplit("#", 1)[1].strip()}
+    return {"why": "symbol-index closure printed no closure-file line"}
+
+
+def _amu_identity(amu: str) -> str:
+    st = os.stat(amu)
+    return f"{amu}:{int(st.st_mtime)}:{st.st_size}"
+
+
+def _memo_load() -> Dict[str, Any]:
+    try:
+        with open(MEMO_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _memo_store(memo: Dict[str, Any]) -> None:
+    os.makedirs(os.path.dirname(MEMO_PATH), exist_ok=True)
+    tmp = MEMO_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(memo, fh, ensure_ascii=False, indent=0)
+    os.replace(tmp, MEMO_PATH)
+
+
+def run_check(ws: str, target: str, fresh: bool = False) -> Dict[str, Any]:
+    """The check with its memo. Returns the result dict (tool_result wraps it)."""
+    amu = os.environ.get("KOTOBA_AMU") or os.path.join(ws, "orgs/kotoba-lang/amu/bin/amu")
+    if not os.path.exists(amu):
+        return {"error": f"amu was not found at {amu} (set KOTOBA_AMU)"}
+
+    closure = _file_closure(ws, target)
+    key = None
+    memo_note: Dict[str, Any] = {"hit": False}
+    if "hash" in closure:
+        key = closure["hash"] + "|" + _amu_identity(amu)
+        memo_note["key"] = closure["hash"]
+        if not fresh:
+            hit = _memo_load().get(key)
+            if isinstance(hit, dict) and "exit" in hit:
+                out = dict(hit)
+                out["memo"] = {"hit": True, "key": closure["hash"], "stored_at": hit.get("stored_at"),
+                               "note": "served from the memo: same file closure (definitions and their dependencies), same amu. fresh=true re-runs."}
+                out.pop("stored_at", None)
+                return out
+    else:
+        memo_note["not_keyed"] = closure["why"]
+
+    try:
+        proc = subprocess.run([amu, "check", target], capture_output=True, text=True, timeout=300, cwd=ws)
+    except subprocess.TimeoutExpired:
+        return {"error": "amu check did not finish in 300s"}
+    except OSError as exc:
+        return {"error": f"could not run amu: {exc}"}
+
+    result = {
+        "exit": proc.returncode,
+        "stdout": proc.stdout[-4000:],
+        "stderr": proc.stderr[-2000:],
+        "note": (
+            "check admitted the module; it did not run it. A "
+            "document-bool type error appears only when the export runs."
+            if proc.returncode == 0
+            else "check refused the module; the reason is in stdout/stderr."
+        ),
+    }
+    if key is not None:
+        import time
+        memo = _memo_load()
+        memo[key] = dict(result, stored_at=int(time.time()))
+        try:
+            _memo_store(memo)
+        except OSError as exc:
+            memo_note["store_failed"] = str(exc)
+    result["memo"] = memo_note
+    return result
 
 
 def handle_check(args: Dict[str, Any]) -> str:
@@ -197,35 +330,7 @@ def handle_check(args: Dict[str, Any]) -> str:
     target = raw if os.path.isabs(raw) else os.path.join(ws, raw)
     if not os.path.exists(target):
         return tool_error(f"no such file: {target}")
-
-    amu = os.environ.get("KOTOBA_AMU") or os.path.join(
-        ws, "orgs/kotoba-lang/amu/bin/amu"
-    )
-    if not os.path.exists(amu):
-        return tool_error(f"amu was not found at {amu} (set KOTOBA_AMU)")
-    try:
-        proc = subprocess.run(
-            [amu, "check", target],
-            capture_output=True,
-            text=True,
-            timeout=300,
-            cwd=ws,
-        )
-    except subprocess.TimeoutExpired:
-        return tool_error("amu check did not finish in 300s")
-    except OSError as exc:
-        return tool_error(f"could not run amu: {exc}")
-
-    return tool_result(
-        {
-            "exit": proc.returncode,
-            "stdout": proc.stdout[-4000:],
-            "stderr": proc.stderr[-2000:],
-            "note": (
-                "check admitted the module; it did not run it. A "
-                "document-bool type error appears only when the export runs."
-                if proc.returncode == 0
-                else "check refused the module; the reason is in stdout/stderr."
-            ),
-        }
-    )
+    out = run_check(ws, target, fresh=bool(args.get("fresh")))
+    if "error" in out:
+        return tool_error(out["error"])
+    return tool_result(out)
