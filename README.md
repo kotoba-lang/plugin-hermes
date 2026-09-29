@@ -31,7 +31,7 @@ style, and that comment outlives the gap and gets copied. Only
 
 **A readiness table cannot be quoted.** Every capability value in this
 workspace that was copied into prose went stale, including in the repo-wide
-`CLAUDE.md` more than once. The tool reads the kits and returns each
+`AGENTS.md` more than once. The tool reads the kits and returns each
 `:qualification` map verbatim, with the key set the kit actually has — they
 differ per kit, so a summary across kits is wrong by construction.
 
